@@ -1,0 +1,209 @@
+/*
+ * 自动生成,别手改 —— 改主题的 themes/cos-cross/source/css/style.css,
+ * 然后跑 `npm run vscode:sync`。
+ * 内容 = 主题的设计变量(限定在 .plot 上)+ 绘图那一段样式 + 预览专有的报错框。
+ */
+.plot {
+  --bg: #06060e;
+  --bg-soft: #0b0b1a;
+  --panel: rgba(17, 17, 36, 0.72);
+  --panel-2: rgba(24, 24, 50, 0.55);
+  --panel-hi: rgba(255, 255, 255, 0.045);
+  --line: rgba(140, 150, 255, 0.14);
+  --line-strong: rgba(160, 170, 255, 0.30);
+
+  --text: #e9ebff;
+  --text-2: #a9adcf;
+  --text-3: #71759b;
+
+  --cyan: #2ee6ff;
+  --violet: #9b7bff;
+  --pink: #ff5fd0;
+  --lime: #a6ff5c;
+  --gold: #ffd166;
+
+  --grad-main: linear-gradient(115deg, var(--cyan), var(--violet) 48%, var(--pink));
+  --grad-soft: linear-gradient(115deg, rgba(46,230,255,.18), rgba(155,123,255,.18) 48%, rgba(255,95,208,.18));
+
+  --radius-lg: 24px;
+  --radius: 16px;
+  --radius-sm: 10px;
+
+  --shadow-lg: 0 30px 70px -34px rgba(0, 0, 0, .95);
+  --shadow-glow: 0 0 0 1px rgba(155, 123, 255, .22), 0 18px 50px -22px rgba(155, 123, 255, .55);
+
+  --sans: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Code", "Fira Code", ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+
+  --nav-h: 68px;
+  --wrap: 1120px;
+  --ease: cubic-bezier(.22, .68, .32, 1);
+}
+
+body.vscode-light .plot {
+  --bg: #f2f3fc;
+  --bg-soft: #ffffff;
+  --panel: rgba(255, 255, 255, 0.78);
+  --panel-2: rgba(255, 255, 255, 0.62);
+  --panel-hi: rgba(20, 20, 60, 0.035);
+  --line: rgba(70, 70, 160, 0.16);
+  --line-strong: rgba(70, 70, 160, 0.30);
+
+  --text: #14152c;
+  --text-2: #4c4f72;
+  --text-3: #83879f;
+
+  --cyan: #0891b2;
+  --violet: #7c4dff;
+  --pink: #db2f9b;
+  --lime: #4d9e12;
+  --gold: #c98a00;
+
+  --shadow-lg: 0 26px 60px -30px rgba(50, 50, 120, .38);
+  --shadow-glow: 0 0 0 1px rgba(124, 77, 255, .22), 0 18px 44px -24px rgba(124, 77, 255, .5);
+}
+
+/* ---------- 函数图像(scripts/plot.js 生成,plot.js 绘制) ---------- */
+.plot {
+  --plot-grid: rgba(140, 150, 255, .14);
+  --plot-axis: rgba(160, 170, 255, .45);
+  --plot-text: rgba(169, 173, 207, .9);
+  margin: 1.9em 0;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+body.vscode-light .plot {
+  --plot-grid: rgba(70, 70, 160, .13);
+  --plot-axis: rgba(70, 70, 160, .45);
+  --plot-text: rgba(76, 79, 114, .9);
+}
+
+.plot-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(46, 230, 255, .1), transparent);
+  font: 600 12px/1.5 var(--mono);
+}
+.plot-kind {
+  padding: 3px 10px;
+  border-radius: 99px;
+  color: #07070f;
+  background: var(--grad-main);
+  font-weight: 800;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plot-hint { color: var(--text-3); }
+.plot-actions { margin-left: auto; display: inline-flex; gap: 7px; }
+.plot-actions button {
+  padding: 4px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-3);
+  font: inherit;
+  cursor: pointer;
+  transition: all .2s var(--ease);
+}
+.plot-actions button:hover { color: var(--cyan); border-color: var(--cyan); }
+/* 半透明开关按下时的状态 */
+.plot-actions button.is-on {
+  color: #07070f;
+  border-color: transparent;
+  background: var(--grad-main);
+}
+.plot-actions button.is-on:hover { color: #07070f; }
+
+.plot-stage {
+  position: relative;
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 0%, rgba(155, 123, 255, .09), transparent 70%),
+    rgba(0, 0, 0, .18);
+}
+body.vscode-light .plot-stage { background: rgba(255, 255, 255, .5); }
+.plot-stage canvas { display: block; width: 100%; touch-action: none; }
+
+.plot-src {
+  border-top: 1px solid var(--line);
+  font: 500 12.5px/1.6 var(--mono);
+}
+.plot-src summary {
+  padding: 9px 14px;
+  cursor: pointer;
+  color: var(--text-3);
+  user-select: none;
+}
+.plot-src summary:hover { color: var(--cyan); }
+.plot-src pre {
+  margin: 0 !important;
+  padding: 0 16px 14px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.plot-error {
+  margin: 0 !important;
+  padding: 22px 18px;
+  text-align: center;
+  color: #ff9a9a;
+  font: 500 13.5px/1.7 var(--mono);
+  background: rgba(255, 80, 80, .08);
+}
+
+@media (max-width: 560px) {
+  .plot-bar { gap: 7px; padding: 8px 11px; }
+  .plot-hint { display: none; }
+  .plot-actions button { padding: 4px 9px; }
+}
+
+/* 数学公式 */
+.katex-display {
+  margin: 1.4em 0 !important;
+  padding: 6px 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.katex { font-size: 1.04em; }
+
+/* 普通页面 */
+.page { max-width: var(--wrap); margin: 0 auto; padding: 40px 22px 30px; }
+.page-content { max-width: 780px; margin: 0 auto; }
+.page-intro { margin: 8px auto 0; }
+.page-intro:empty { display: none; }
+
+/* 预览专有:代码块解析失败时的红框(不是从主题同步来的) */
+.plot-preview-error {
+  border: 1px solid rgba(255, 107, 107, .5);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: rgba(255, 107, 107, .08);
+  padding: 10px 14px;
+  margin: 1em 0;
+  font: 13px/1.6 var(--vscode-editor-font-family, monospace);
+}
+.plot-preview-error-title { font-weight: 700; color: #ff6b6b; margin-bottom: 6px; }
+.plot-preview-error-msg,
+.plot-preview-error-src {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .25);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.plot-preview-error-msg { color: #ffb4b4; }
+.plot-preview-error-hint { margin-top: 8px; color: var(--text-3); }
+.plot-preview-error-src { color: var(--text-2); }

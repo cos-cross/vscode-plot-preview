@@ -1,0 +1,8 @@
+# 构建产物 / 依赖
+node_modules/
+*.vsix
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.vscode-test/

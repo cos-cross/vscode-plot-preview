@@ -1,0 +1,8 @@
+# 打包时不用带进去的东西
+.gitignore
+.git/**
+.github/**
+.vscode/**
+node_modules/**
+tools/**
+*.vsix

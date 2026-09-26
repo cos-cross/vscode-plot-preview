@@ -1,0 +1,55 @@
+{
+  "name": "plot-preview",
+  "displayName": "函数图像预览(plot2d / plot3d)",
+  "description": "在 VSCode 自带的 Markdown 预览里直接渲染 plot2d / plot3d 代码块,零依赖、可交互。",
+  "version": "1.0.4",
+  "publisher": "cos-cross",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cos-cross/vscode-plot-preview.git"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "markdown",
+    "plot",
+    "math",
+    "canvas",
+    "preview"
+  ],
+  "activationEvents": [
+    "*",
+    "onLanguage:markdown"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "plot-preview.diagnose",
+        "title": "诊断",
+        "category": "plot-preview"
+      }
+    ],
+    "markdown.previewStyles": [
+      "./preview/plot.css"
+    ],
+    "markdown.previewScripts": [
+      "./preview/plot.js",
+      "./preview/bootstrap.js"
+    ],
+    "markdown.markdownItPlugins": true
+  },
+  "scripts": {
+    "test": "node tools/test.mjs",
+    "sync": "node tools/sync-from-blog.mjs",
+    "package": "npx --yes @vscode/vsce@latest package --no-dependencies --out plot-preview-1.0.4.vsix"
+  },
+  "devDependencies": {
+    "markdown-it": "^15.0.2"
+  }
+}
