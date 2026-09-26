@@ -1,6 +1,6 @@
 /*
- * 自动生成,别手改 —— 改主题的 themes/cos-cross/source/css/style.css,
- * 然后跑 `npm run vscode:sync`。
+ * 自动生成,别手改 —— 改博客仓库的 themes/cos-cross/source/css/style.css,
+ * 然后在这个仓库里跑 `node tools/sync-from-blog.mjs <博客路径>`。
  * 内容 = 主题的设计变量(限定在 .plot 上)+ 绘图那一段样式 + 预览专有的报错框。
  */
 .plot {

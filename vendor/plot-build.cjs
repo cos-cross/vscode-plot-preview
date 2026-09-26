@@ -27,18 +27,29 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 /**
- * 解析器 / 渲染核心(themes/cos-cross/source/js/plot.js)。
+ * 解析器 / 渲染核心。
  *
  * 这里**不能**在顶层直接 `require(hexo.theme_dir ...)`:同一个文件还要被
- * VSCode 预览插件(见 vscode-plot-preview/)当普通模块 require,
- * 那边没有 hexo。所以改成懒加载 + 可注入。
+ * VSCode 预览插件当普通模块 require,那边没有 hexo。所以改成懒加载 + 可注入。
+ *
+ * 找 core 的顺序(为了能整个搬到别的 Hexo 博客里用):
+ *   1. 有人显式注入过(setKit)—— VSCode 插件走这条;
+ *   2. 当前主题的 `source/js/plot.js` —— 在别的 Hexo 博客里把这个文件和本文件
+ *      一起放好就能用,不依赖主题叫什么名字;
+ *   3. 本仓库自带的那份 —— 单仓库时的兜底。
  */
 let Kit = null;
 function kit() {
-  if (!Kit) {
-    Kit = require(path.join(__dirname, '..', 'themes', 'cos-cross', 'source', 'js', 'plot.js'));
+  if (Kit) return Kit;
+  const candidates = [];
+  if (typeof hexo !== 'undefined' && hexo && hexo.theme_dir) {
+    candidates.push(path.join(hexo.theme_dir, 'source', 'js', 'plot.js'));
   }
-  return Kit;
+  candidates.push(path.join(__dirname, '..', 'themes', 'cos-cross', 'source', 'js', 'plot.js'));
+  for (const p of candidates) {
+    if (fs.existsSync(p)) { Kit = require(p); return Kit; }
+  }
+  throw new Error(`找不到绘图核心 plot.js,找过:${candidates.join(' / ')}`);
 }
 function setKit(k) { Kit = k; }
 
