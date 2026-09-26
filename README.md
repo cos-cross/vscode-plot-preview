@@ -42,6 +42,28 @@ npm run package      # 生成 plot-preview-1.0.4.vsix
 - `centers`、`links(2)`(画晶格骨架);
 - `where x > 0`,以及独立成行的全局约束。
 
+## 在别的项目里用
+
+**只想在编辑器里看**:装一次扩展就够了 —— 它对**所有** `.md` 生效,不管在哪个仓库,
+也不需要 `npm install`、不需要构建。
+
+**还想把带图的笔记发布成别的站点**(比如另一个 Hexo 博客):把两份文件放过去就行,
+不需要重新实现任何东西:
+
+| 从这里复制 | 放到那边 |
+| --- | --- |
+| `vendor/plot-build.cjs` | `scripts/plot.js`(Hexo 会自动加载 `scripts/*.js`) |
+| `preview/plot.js` | `<你的主题>/source/js/plot.js` |
+| `preview/plot.css` 里 `.plot` 那几段 | 主题的样式表(或者单独引一个 CSS) |
+
+构建期插件会**优先用当前主题的** `source/js/plot.js`,所以不依赖主题叫什么名字。
+然后和这边一样:`npm run build` / `hexo generate` 就能把 `plot2d` / `plot3d` 代码块
+换成可交互的图。
+
+> 注:那个插件只认 Hexo 的 `scripts/`。用别的静态站点生成器(比如 Hugo / VitePress),
+> 得自己把 `plot-build.cjs` 的 `buildPlotBlock()` 接到对方的 Markdown 渲染钩子上 ——
+> 它是个纯函数,输入(类型、选项、代码)输出 HTML 字符串,没有别的依赖。
+
 ## 代码从哪来
 
 **绘图代码不在这个仓库里维护。** 源头是博客仓库(那边有完整的单测和渲染测试),
