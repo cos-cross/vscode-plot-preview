@@ -255,6 +255,7 @@ function contentBox2D(kept, shapes, globalConds, regionOnly, xr, yr) {
 
   shapes.points.forEach((p) => add(p.x, p.y));
   shapes.segments.forEach((s) => { add(s.a.x, s.a.y); add(s.b.x, s.b.y); });
+  (shapes.arrows || []).forEach((s) => { add(s.a.x, s.a.y); add(s.b.x, s.b.y); });
   shapes.polygons.forEach((pg) => pg.points.forEach((p) => add(p.x, p.y)));
 
   if (!Number.isFinite(x0)) return null;
@@ -307,8 +308,9 @@ function buildPlotBlock(kind, optsRaw, code, source) {
     const wantCenters = [];  // `centers`:在每个球心/点位置打一个点
     const linkSpecs = [];    // `links(d)`:把相距 d 的两两格点连起来
 
-    // segment(A, B) / line(A, B) / polygon(A, B, C) / face(...) / triangle(...)
-    const SHAPE_RE = /^(segment|line|polygon|face|triangle)\s*\(/i;
+    // segment(A, B) / line(A, B) / arrow(A, B) / vector(A, B)
+    // polygon(A, B, C) / face(...) / triangle(...)
+    const SHAPE_RE = /^(segment|line|arrow|vector|polygon|face|triangle)\s*\(/i;
     // centers / links(d) —— 画晶格骨架用的两个词
     const CENTERS_RE = /^centers?$/i;
     const LINKS_RE = /^(links?|bonds?)\s*\(/i;
@@ -372,22 +374,33 @@ function buildPlotBlock(kind, optsRaw, code, source) {
           problems.push(`${source}:"${line}" —— ${e.message}`);
         }
       } else if (SHAPE_RE.test(base)) {
-        // 线段 / 多边形。顶点可以引用同一块里定义的点(靠标签),
+        // 线段 / 有向线段 / 多边形。顶点可以引用同一块里定义的点(靠标签),
         // 也可以直接写坐标。这里先原样存下引用,等整块扫完再解析 ——
         // 否则 `segment(A, B)` 写在 `point(...) A` 前面就会找不到 A。
         const keyword = /^([A-Za-z_]\w*)/.exec(base)[1].toLowerCase();
         const isSegment = keyword === 'segment' || keyword === 'line';
+        const isArrow = keyword === 'arrow' || keyword === 'vector';
         try {
           const call = Kit.parseCallArgs(base, keyword);
           if (!call) throw new Error(`没找到 ${keyword}(...)`);
           const refs = call.args.map((a) => Kit.parseCoordRef(a));
-          if (isSegment && refs.length !== 2) {
-            throw new Error(`线段要正好两个端点,现在写了 ${refs.length} 个`);
+          if ((isSegment || isArrow) && refs.length !== 2) {
+            throw new Error(`${isArrow ? '有向线段' : '线段'}要正好两个端点(起点、终点),现在写了 ${refs.length} 个`);
           }
-          if (!isSegment && refs.length < 3) {
+          if (!isSegment && !isArrow && refs.length < 3) {
             throw new Error(`多边形至少要三个顶点,现在写了 ${refs.length} 个`);
           }
-          shapes.push({ kind: isSegment ? 'segment' : 'polygon', refs, conds, source: line.trim() });
+          // 有向线段可以在右括号后面跟一个标签:`arrow(A, B) v` ——
+          // 和 `point(1,2) P` 一个写法,标签画在线段中点旁边。
+          const tail = isArrow ? /^\s*([^\s(<]*)/.exec(base.slice(call.end)) : null;
+          const label = (tail && tail[1]) ? tail[1] : '';
+          shapes.push({
+            kind: isArrow ? 'arrow' : (isSegment ? 'segment' : 'polygon'),
+            refs,
+            conds,
+            label,
+            source: line.trim(),
+          });
         } catch (e) {
           problems.push(`${source}:"${line}" —— ${e.message}`);
         }
@@ -490,12 +503,14 @@ function buildPlotBlock(kind, optsRaw, code, source) {
     shapes.forEach((sh) => {
       try {
         const pts = sh.refs.map(resolve);
-        if (sh.kind === 'segment') {
+        if (sh.kind === 'segment' || sh.kind === 'arrow') {
           const [a, b] = pts;
           if (Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-12) {
-            throw new Error('线段两个端点重合了');
+            throw new Error(sh.kind === 'arrow' ? '有向线段两个端点重合了' : '线段两个端点重合了');
           }
-          items.push({ type: 'segment', a, b, constraints: sh.conds });
+          items.push({
+            type: sh.kind, a, b, label: sh.label || '', constraints: sh.conds,
+          });
         } else {
           items.push({ type: 'polygon', points: pts, constraints: sh.conds });
         }
@@ -577,23 +592,46 @@ function buildPlotBlock(kind, optsRaw, code, source) {
     const curves = items.filter(notShape);
     const points = items.filter((it) => it.type === 'point');
     const segments = items.filter((it) => it.type === 'segment');
+    const arrows = items.filter((it) => it.type === 'arrow');
     const polygons = items.filter((it) => it.type === 'polygon');
-    const hasShape = segments.length > 0 || polygons.length > 0;
+    const hasShape = segments.length > 0 || polygons.length > 0 || arrows.length > 0;
 
-    // 整块只有独立的点/线段/多边形(既没有曲线,也不是区域模式)时,纵轴自动定范围。
-    // 区域模式下不能这么做 —— 否则画布会被几个点挤成一条窄带,区域就看不出来了。
+    // 整块只有独立的点/线段/有向线段/多边形(既没有曲线,也不是区域模式)时,
+    // 两个轴都按图形实际占的地方自动定范围。
+    //
+    // 为什么连 x 也一起定:`arrow((0,0), (1,1))` 这种小图形落在默认的 x=[-10,10] 里
+    // 只占画布十分之一宽,而且会被压成一条几乎竖直的线 —— 方向都画错了。
+    // 两个轴都自动定的时候顺手把画布比例设成内容的比例,这样 x、y 的单位长度一致,
+    // 45° 就是 45°。(区域模式下不能这么做:画布会被几个点挤成一条窄带。)
+    const autoXs = !Array.isArray(o.x);
+    const autoYs = !Array.isArray(o.y);
     if (kind === '2d' && (points.length || hasShape) && !curves.length && !globalConds.length
-      && !Array.isArray(o.y)) {
+      && (autoXs || autoYs)) {
+      const xs = [
+        ...points.map((p) => p.x),
+        ...segments.flatMap((s) => [s.a.x, s.b.x]),
+        ...arrows.flatMap((s) => [s.a.x, s.b.x]),
+        ...polygons.flatMap((p) => p.points.map((v) => v.x)),
+      ];
       const ys = [
         ...points.map((p) => p.y),
         ...segments.flatMap((s) => [s.a.y, s.b.y]),
+        ...arrows.flatMap((s) => [s.a.y, s.b.y]),
         ...polygons.flatMap((p) => p.points.map((v) => v.y)),
       ];
-      if (ys.length) {
-        const lo = Math.min(...ys);
-        const hi = Math.max(...ys);
+      // 留 20% 边距(最少 0.5),不然线和画布边贴在一起
+      const spanOf = (vals) => {
+        const lo = Math.min(...vals);
+        const hi = Math.max(...vals);
         const pad = Math.max((hi - lo) * 0.2, 0.5);
-        o.y = [lo - pad, hi + pad];
+        return [lo - pad, hi + pad];
+      };
+      if (autoXs && xs.length) o.x = spanOf(xs);
+      if (autoYs && ys.length) o.y = spanOf(ys);
+      if (autoXs && autoYs && !Number.isFinite(o.ratio)) {
+        const xw = o.x[1] - o.x[0];
+        const yh = o.y[1] - o.y[0];
+        if (xw > 0 && yh > 0) o.ratio = Math.max(0.4, Math.min(1.4, yh / xw));
       }
     }
 
@@ -685,7 +723,7 @@ function buildPlotBlock(kind, optsRaw, code, source) {
       if (!Number.isFinite(asked) && fillCount > 1) alpha = 0.62;
       o2.alpha = alpha;
 
-      payload = { items: surfaces.concat(polygons, segments, points), opts: o2 };
+      payload = { items: surfaces.concat(polygons, segments, arrows, points), opts: o2 };
       const nameOf = (it) => it.display || it.expr;
       label = surfaces.length === 1
         ? (anyImplicit ? `3D 等值面 · ${nameOf(surfaces[0])}` : `3D 曲面 · z = ${nameOf(surfaces[0])}`)
@@ -698,6 +736,7 @@ function buildPlotBlock(kind, optsRaw, code, source) {
       if (surfaces.some((it) => it.constraints.length > globalCount)) label += ' · 带 where';
       if (polygons.length) label += ` · ${polygons.length} 个面`;
       if (segments.length) label += ` · ${segments.length} 条线段`;
+      if (arrows.length) label += ` · ${arrows.length} 条有向线段`;
       if (points.length) label += ` · ${points.length} 个点`;
     } else {
       const hasCurves = curves.length > 0;
@@ -723,7 +762,9 @@ function buildPlotBlock(kind, optsRaw, code, source) {
         // 两个范围都没写:按图形实际占的地方自动取景。
         // 不这么做的话窗口是默认的 [-10,10]²,一个小图形只占画面 1/20 宽 ——
         // 就是"初始状态看着特别小"的原因。
-        const box = contentBox2D(kept, { polygons, segments, points }, globalConds, regionOnly, xr, yr);
+        const box = contentBox2D(kept, {
+          polygons, segments, arrows, points,
+        }, globalConds, regionOnly, xr, yr);
         if (box) {
           const pad = 0.08;
           const w = Math.max(box.x1 - box.x0, 1e-6);
@@ -766,7 +807,7 @@ function buildPlotBlock(kind, optsRaw, code, source) {
       if (mustBeSquare && askedRatio === null) ratio = 1;
 
       payload = {
-        items: kept.concat(polygons, segments, points),
+        items: kept.concat(polygons, segments, arrows, points),
         region: regionOnly ? globalConds : [],
         opts: { x: xr, y: yr, samples: Math.max(100, Math.min(2000, o.n || 900)) },
       };
@@ -781,6 +822,7 @@ function buildPlotBlock(kind, optsRaw, code, source) {
       if (withWhere) parts.push(`${withWhere} 条带 where`);
       if (polygons.length) parts.push(`${polygons.length} 个面`);
       if (segments.length) parts.push(`${segments.length} 条线段`);
+      if (arrows.length) parts.push(`${arrows.length} 条有向线段`);
       if (points.length) parts.push(`${points.length} 个点`);
       label = `2D · ${parts.join(' + ')}`;
     }

@@ -402,6 +402,7 @@
   /**
    * 取出 text 里第一个 `name(...)` 调用,返回括号内按顶层逗号切开的参数。
    * `segment(A, B)` / `polygon(A, B, C)` 这类写法都靠它。
+   * `end` 是右括号后面那个下标 —— `arrow(A, B) v` 这种"调用后面跟标签"的写法要用它。
    */
   function parseCallArgs(text, name) {
     const re = new RegExp('(?:^|[^A-Za-z0-9_])' + name + '\\s*\\(', 'i');
@@ -410,7 +411,7 @@
     const open = m.index + m[0].length - 1;
     const close = matchParen(text, open);
     if (close < 0) throw new Error(name + ' 的括号没有闭合:' + text.trim());
-    return { args: splitTopLevel(text.slice(open + 1, close)) };
+    return { args: splitTopLevel(text.slice(open + 1, close)), end: close + 1 };
   }
 
   /** 把一段文本当常量表达式算出来(球心坐标、半径这些都用它) */
@@ -508,6 +509,54 @@
       throw new Error('点的坐标没写对,应该形如 point(1, 2) 或 point(1, 2, 3):' + src.trim());
     }
     return out;
+  }
+
+  /**
+   * 有向线段(arrow):在屏幕坐标里画一个实心三角箭头。
+   *
+   * 为什么不按数学坐标算箭头大小 —— 那样它会跟着缩放变形:放大 100 倍时箭头只剩一条缝,
+   * 缩到 0.01 时糊成一坨。屏幕空间里固定十来个像素,任何缩放和宽高比下观感都一样。
+   * 3D 也一样:方向用投影后的两点差,透视自然会带出"近大远小"的感觉。
+   */
+  var ARROW_COLOR = '#2ee6ff';
+  var ARROW_HEAD = 11; // 屏幕像素
+
+  function drawArrowHead(ctx, x0, y0, x1, y1, color) {
+    var dx = x1 - x0;
+    var dy = y1 - y0;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (!(len > 0.5)) return;
+    // 线本身很短时(比如缩得很小)把箭头一起缩小,否则箭头比线还长,看着像一团点
+    var size = Math.min(ARROW_HEAD, len * 0.85);
+    if (size < 3) return;
+    var ux = dx / len;
+    var uy = dy / len;
+    var bx = x1 - ux * size; // 底边中点
+    var by = y1 - uy * size;
+    var half = size * 0.45;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(bx - uy * half, by + ux * half);
+    ctx.lineTo(bx + uy * half, by - ux * half);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  /** 箭头中点旁边的标签(向量名:v、F、a…),挑朝上的一侧放,免得压在线上 */
+  function drawArrowLabel(ctx, x0, y0, x1, y1, text, color) {
+    if (!text) return;
+    var dx = x1 - x0;
+    var dy = y1 - y0;
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var nx = -dy / len;
+    var ny = dx / len;
+    if (ny > 0) { nx = -nx; ny = -ny; }
+    ctx.font = '600 12.5px ui-monospace, Consolas, monospace';
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, (x0 + x1) / 2 + nx * 12, (y0 + y1) / 2 + ny * 12);
   }
 
   /**
@@ -1261,6 +1310,7 @@
     });
 
     // 2.5) 线段盖在曲线之上(它是"作图辅助线",不该被函数线压住)
+    //      有向线段(arrow)走同一套:线 + 末端的实心箭头,颜色换成青色好和普通线段区分。
     var segScope2d = makeScope(['x', 'y']);
     (state.segments || []).forEach(function (seg) {
       // 约束按中点判定:整条留或整条不留。
@@ -1270,16 +1320,23 @@
         segScope2d.y = (seg.a.y + seg.b.y) / 2;
         if (!seg.mask(segScope2d)) return;
       }
+      var ax = x2p(seg.a.x), ay = y2p(seg.a.y);
+      var bx = x2p(seg.b.x), by = y2p(seg.b.y);
+      var color = seg.arrow ? ARROW_COLOR : '#ffd166';
       ctx.beginPath();
-      ctx.moveTo(x2p(seg.a.x), y2p(seg.a.y));
-      ctx.lineTo(x2p(seg.b.x), y2p(seg.b.y));
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
       ctx.lineWidth = 2;
-      ctx.strokeStyle = '#ffd166';
-      ctx.shadowColor = '#ffd166';
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
       ctx.shadowBlur = 8;
       ctx.lineCap = 'round';
       ctx.stroke();
       ctx.shadowBlur = 0;
+      if (seg.arrow) {
+        drawArrowHead(ctx, ax, ay, bx, by, color);
+        drawArrowLabel(ctx, ax, ay, bx, by, seg.label, color);
+      }
     });
 
     // 3) 单独的点画在最上层(2D 没有遮挡问题)
@@ -1600,6 +1657,7 @@
     var SEG_PIECES = 14;
     var segScope = makeScope(['x', 'y', 'z']);
     (state.segments || []).forEach(function (seg) {
+      var pieces = [];
       for (var k = 0; k < SEG_PIECES; k++) {
         var t0 = k / SEG_PIECES, t1 = (k + 1) / SEG_PIECES;
         var p0 = lerpPoint(seg.a, seg.b, t0);
@@ -1609,20 +1667,42 @@
         if (s0.depth <= 0.05 || s1.depth <= 0.05) continue;
         // 约束按每一小段的中点判定 —— 于是 `segment(A,B) where z > 0`
         // 能真的只留上半截,而不是整条去掉。
+        // 判定用的是 ma/mb(数学坐标),不是 a/b(渲染坐标,轴被重排过)。
         if (seg.mask) {
-          var mid = lerpPoint(seg.a, seg.b, (t0 + t1) / 2);
+          var mid = lerpPoint(seg.ma || seg.a, seg.mb || seg.b, (t0 + t1) / 2);
           segScope.x = mid.x; segScope.y = mid.y; segScope.z = mid.z;
           if (!seg.mask(segScope)) continue;
         }
-        items.push({
+        pieces.push({
           kind: 'seg',
           depth: (s0.depth + s1.depth) / 2,
           x0: s0.x + (state.panX || 0),
           y0: s0.y + (state.panY || 0),
           x1: s1.x + (state.panX || 0),
           y1: s1.y + (state.panY || 0),
+          arrow: !!seg.arrow,
         });
       }
+
+      // 箭头画在"最后一个还活着的分段"上 —— 被 where 切掉尾巴时,
+      // 箭头应该停在可见部分的末端,而不是跟着尾巴一起消失。
+      if (seg.arrow && pieces.length) {
+        pieces[pieces.length - 1].head = true;
+        if (seg.label) {
+          var first = pieces[0];
+          var last = pieces[pieces.length - 1];
+          items.push({
+            kind: 'arrowlabel',
+            depth: last.depth,
+            x0: first.x0,
+            y0: first.y0,
+            x1: last.x1,
+            y1: last.y1,
+            text: seg.label,
+          });
+        }
+      }
+      for (var pi = 0; pi < pieces.length; pi++) items.push(pieces[pi]);
     });
 
     // 把点也塞进同一个深度序列 —— 这样球背面的点会被球正确地挡住
@@ -1669,20 +1749,30 @@
         continue;
       }
 
+      if (q.kind === 'arrowlabel') {
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+        drawArrowLabel(ctx, q.x0, q.y0, q.x1, q.y1, q.text, ARROW_COLOR);
+        continue;
+      }
+
       if (q.kind === 'seg') {
         // 线段始终不透明、带一点辉光 —— 它读起来是"作图辅助线",
         // 跟着曲面一起变半透明的话会和面糊在一起看不清。
         ctx.globalAlpha = 1;
+        var segColor = q.arrow ? ARROW_COLOR : '#ffd166';
         ctx.beginPath();
         ctx.moveTo(q.x0, q.y0);
         ctx.lineTo(q.x1, q.y1);
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
-        ctx.strokeStyle = '#ffd166';
-        ctx.shadowColor = '#ffd166';
+        ctx.strokeStyle = segColor;
+        ctx.shadowColor = segColor;
         ctx.shadowBlur = 8;
         ctx.stroke();
         ctx.shadowBlur = 0;
+        // 箭头只在最后一段上画一次,方向用这一段投影后的走向
+        if (q.head) drawArrowHead(ctx, q.x0, q.y0, q.x1, q.y1, segColor);
         continue;
       }
 
@@ -1942,9 +2032,21 @@
 
         // 线段:保留原端点,渲染时再按深度切开(见 render3D)—— 一整条线只按
         // 中点排序的话,穿过球的那一段遮挡关系会明显不对。
-        state.segments = compiled.filter(function (it) { return it.type === 'segment'; })
+        // 有向线段(arrow)也放进来,靠 arrow 标记换色、并在末端补一个箭头。
+        state.segments = compiled.filter(function (it) { return it.type === 'segment' || it.type === 'arrow'; })
           .map(function (s) {
-            return { a: toRender(s.a), b: toRender(s.b), mask: s.mask };
+            return {
+              a: toRender(s.a),
+              b: toRender(s.b),
+              // 约束要在**数学坐标**里判定。渲染立方体把 (x,y,z) 重排成了 (x,z,y)
+              // (见上面 toRender),拿渲染坐标去跑 mask 的话 `where z > 0` 实际比的是 y,
+              // 整条线会被静默吃掉 —— 所以原始端点也留一份。
+              ma: s.a,
+              mb: s.b,
+              mask: s.mask,
+              arrow: s.type === 'arrow',
+              label: s.label || '',
+            };
           });
 
         // 面片:顶点投影后按平均深度参与排序。约束按重心判定(整块留或整块不留)。
@@ -1979,8 +2081,14 @@
             if (!it.mask) { dots.push(it); return; }
             scope.x = it.x; scope.y = it.y;
             if (it.mask(scope)) dots.push(it);
-          } else if (it.type === 'segment') {
-            segs.push({ a: it.a, b: it.b, mask: it.mask });
+          } else if (it.type === 'segment' || it.type === 'arrow') {
+            segs.push({
+              a: it.a,
+              b: it.b,
+              mask: it.mask,
+              arrow: it.type === 'arrow',
+              label: it.label || '',
+            });
           } else if (it.type === 'polygon') {
             if (it.mask) {
               let sx = 0, sy = 0;
